@@ -1,0 +1,53 @@
+# Unreal Engine generated directories
+**/Binaries/
+**/DerivedDataCache/
+**/Intermediate/
+**/Saved/
+
+# Unreal Engine generated project files
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+*.xcodeproj
+*.xcworkspace
+
+# IDE and editor state
+.vs/
+.vscode/
+.idea/
+*.code-workspace
+*.user
+*.userprefs
+*.suo
+*.tmp
+*.log
+
+# Build and automation output
+**/Build/Receipts/
+**/Build/Script/
+**/Build/TargetMakefile.json
+**/Build/TargetManifest.json
+**/Build/UBTMakefile.bin
+
+# Cooked, staged, and packaged builds
+**/Cooked/
+**/StagedBuilds/
+**/Packaged/
+
+# Local platform files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Crash dumps and diagnostics
+*.dmp
+*.mdmp
+*.pdb
+*.obj
+*.ilk
+*.ipdb
+*.iobj
