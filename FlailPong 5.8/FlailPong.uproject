@@ -1,8 +1,15 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "5.8",
+	"EngineAssociation": "{CD1EBD03-4271-AC93-7003-80A14BDF4F6F}",
 	"Category": "",
 	"Description": "",
+	"Modules": [
+		{
+			"Name": "FlailPong",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
 	"Plugins": [
 		{
 			"Name": "ModelingToolsEditorMode",
