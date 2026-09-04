@@ -252,6 +252,7 @@ private:
 	TOptional<float> LockedEndY;
 	TOptional<float> MouseFollowPlaneY;
 	TOptional<FQuat> MouseFollowHeadRotation;
+	bool bLoggedMouseControllerStatus = false;
 	FVector PreviousStartLocation = FVector::ZeroVector;
 	bool bHasPreviousStartLocation = false;
 	bool bWarnedMissingStart = false;

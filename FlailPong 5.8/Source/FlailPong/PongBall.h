@@ -6,6 +6,7 @@
 
 class USphereComponent;
 class UStaticMeshComponent;
+class UMaterialInstanceDynamic;
 class UPointLightComponent;
 class UNiagaraComponent;
 
@@ -24,6 +25,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Ball|Visual")
 	TObjectPtr<UStaticMeshComponent> BallTrail;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> BallTrailMaterial;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Ball|Visual")
 	TObjectPtr<UPointLightComponent> BallGlow;
@@ -65,7 +69,7 @@ protected:
 	int32 BlueScore = 0;
 
 	bool bGoalResetting = false;
-	void CheckGoalEntry();
+	bool CheckGoalEntry();
 	void UpdateScoreDisplays() const;
 	void TriggerGoalBurst(float GoalX, const FLinearColor& Color);
 	float GoalBurstTimeRemaining = 0.0f;

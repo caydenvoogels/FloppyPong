@@ -6,6 +6,7 @@
 #include "Engine/StaticMesh.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
+#include "KineticPlayerControllerBase.h"
 #include "Materials/MaterialInterface.h"
 #include "PhysicsEngine/PhysicsConstraintComponent.h"
 #include "PhysicsEngine/PhysicsHandleComponent.h"
@@ -54,6 +55,23 @@ void UFlailTetherComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	if (UPrimitiveComponent* StartBody = Cast<UPrimitiveComponent>(CachedStartComponent.Get()))
 	{
 		ConstrainBodyToXZPlane(StartBody, LockedStartY);
+	}
+	APlayerController* ActiveController = UGameplayStatics::GetPlayerController(this, 0);
+	AKineticPlayerControllerBase* PlayerController = Cast<AKineticPlayerControllerBase>(ActiveController);
+	if (!bLoggedMouseControllerStatus && ActiveController)
+	{
+		bLoggedMouseControllerStatus = true;
+		const FString Status = FString::Printf(TEXT("FlailPong mouse controller: runtime=%s native-cast=%s"),
+			*ActiveController->GetClass()->GetPathName(), PlayerController ? TEXT("true") : TEXT("false"));
+		UE_LOG(LogTemp, Warning, TEXT("%s"), *Status);
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 10.0f, PlayerController ? FColor::Green : FColor::Red, Status);
+		}
+	}
+	if (PlayerController)
+	{
+		PlayerController->EnsureRawMouseInput();
 	}
 	DriveBluePaddleAI(DeltaTime);
 	DriveTargetHeadFromMouse(DeltaTime);
@@ -281,6 +299,14 @@ void UFlailTetherComponent::DriveBluePaddleAI(float DeltaTime)
 		: FVector::ZeroVector;
 	const FVector PredictedLocation = BallLocation + (BallVelocity * 0.22f);
 	const FVector AnchorLocation = GetAnchorLocation(PaddleBody, StartLocalOffset);
+	const AKineticPlayerControllerBase* PlayerController = Cast<AKineticPlayerControllerBase>(UGameplayStatics::GetPlayerController(this, 0));
+	const bool bSecondMouseActive = PlayerController && PlayerController->IsSecondMouseActive();
+	// When raw mouse routing is available, Blue is controlled exclusively by
+	// Mouse 2. Do not let the AI move it while Mouse 2 is still being detected.
+	if (PlayerController && !bSecondMouseActive)
+	{
+		return;
+	}
 	const bool bBallThreatening = BallLocation.X < 0.0f;
 	BlueAISwingCooldown = FMath::Max(0.0f, BlueAISwingCooldown - DeltaTime);
 	if (bBallThreatening && BlueAISwingCooldown <= 0.0f && BlueAISwingTime <= 0.0f)
@@ -290,7 +316,13 @@ void UFlailTetherComponent::DriveBluePaddleAI(float DeltaTime)
 	}
 
 	FVector DesiredHeadLocation = BlueAIRestLocation;
-	if (BlueAISwingTime > 0.0f)
+	if (bSecondMouseActive)
+	{
+		BlueAISwingTime = 0.0f;
+		const FVector2D MousePosition = PlayerController->GetSecondMousePosition();
+		DesiredHeadLocation = FVector(MousePosition.X, AnchorLocation.Y, MousePosition.Y);
+	}
+	else if (BlueAISwingTime > 0.0f)
 	{
 		BlueAISwingTime = FMath::Max(0.0f, BlueAISwingTime - DeltaTime);
 		const float Progress = 1.0f - FMath::Clamp(BlueAISwingTime / FMath::Max(BlueAISwingDuration, 0.01f), 0.0f, 1.0f);
@@ -344,6 +376,22 @@ void UFlailTetherComponent::DriveTargetHeadFromMouse(float DeltaTime)
 	APlayerController* PlayerController = UGameplayStatics::GetPlayerController(this, 0);
 	if (!PlayerController)
 	{
+		return;
+	}
+	const AKineticPlayerControllerBase* KineticController = Cast<AKineticPlayerControllerBase>(PlayerController);
+	if (KineticController && KineticController->HasRawMouseInput())
+	{
+		const FVector2D MousePosition = KineticController->GetPrimaryMousePosition();
+		const FVector CurrentLocation = HeadBody->GetComponentLocation();
+		const FVector TargetLocation(MousePosition.X, CurrentLocation.Y, MousePosition.Y);
+		const float InterpSpeed = FMath::Max(MouseFollowInterpSpeed, 0.0f);
+		const FVector NewLocation = InterpSpeed <= 0.0f
+			? TargetLocation
+			: FMath::VInterpTo(CurrentLocation, TargetLocation, DeltaTime, InterpSpeed);
+		HeadBody->SetEnableGravity(false);
+		HeadBody->SetSimulatePhysics(false);
+		HeadBody->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		HeadBody->SetWorldLocation(NewLocation, false, nullptr, ETeleportType::None);
 		return;
 	}
 

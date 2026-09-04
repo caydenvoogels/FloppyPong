@@ -7,6 +7,7 @@
 #include "Engine/TextRenderActor.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "Components/TextRenderComponent.h"
 #include "NiagaraComponent.h"
@@ -43,7 +44,10 @@ APongBall::APongBall()
 	BallTrail->SetupAttachment(BallBody);
 	BallTrail->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder")));
 	BallTrail->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	BallTrail->SetMaterial(0, LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/M_PongArena_Blue.M_PongArena_Blue")));
+	UMaterialInterface* TrailBaseMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/M_PongArena_Blue.M_PongArena_Blue"));
+	BallTrailMaterial = UMaterialInstanceDynamic::Create(TrailBaseMaterial, this);
+	BallTrail->SetMaterial(0, BallTrailMaterial);
+	BallTrail->SetVisibility(false);
 
 	BallGlow = CreateDefaultSubobject<UPointLightComponent>(TEXT("BallGlow"));
 	BallGlow->SetupAttachment(BallBody);
@@ -91,8 +95,7 @@ void APongBall::Tick(float DeltaSeconds)
 
 	FVector Location = BallBody->GetComponentLocation();
 	Location.Y = PlayPlaneY;
-	CheckGoalEntry();
-	if (bGoalResetting)
+	if (CheckGoalEntry() || bGoalResetting)
 	{
 		return;
 	}
@@ -134,8 +137,22 @@ void APongBall::Tick(float DeltaSeconds)
 	}
 	if (IsValid(BallTrail.Get()) && !TravelDirection.IsNearlyZero())
 	{
+		// The cylinder's length runs along local Z. Keep its visual axis aligned with travel,
+		// independent of the physics body's angular rotation.
 		BallTrail->SetWorldLocation(Location - (TravelDirection * (TrailLength * 0.5f)));
+		BallTrail->SetWorldRotation(FRotationMatrix::MakeFromZ(TravelDirection).Rotator());
 		BallTrail->SetWorldScale3D(FVector(0.14f, 0.14f, TrailLength / 100.0f));
+		BallTrail->SetVisibility(true);
+		if (BallTrailMaterial)
+		{
+			BallTrailMaterial->SetVectorParameterValue(TEXT("BaseColor"), SideColor);
+			BallTrailMaterial->SetVectorParameterValue(TEXT("Color"), SideColor);
+			BallTrailMaterial->SetVectorParameterValue(TEXT("Tint"), SideColor);
+		}
+	}
+	else if (IsValid(BallTrail.Get()))
+	{
+		BallTrail->SetVisibility(false);
 	}
 	const float Speed = Velocity.Size();
 	if (Speed > KINDA_SMALL_NUMBER)
@@ -144,17 +161,17 @@ void APongBall::Tick(float DeltaSeconds)
 	}
 }
 
-void APongBall::CheckGoalEntry()
+bool APongBall::CheckGoalEntry()
 {
 	if (bGoalResetting || !BallBody)
 	{
-		return;
+		return false;
 	}
 
 	const FVector Location = BallBody->GetComponentLocation();
 	if (FMath::Abs(Location.Z) > GoalHalfHeight)
 	{
-		return;
+		return false;
 	}
 
 	int32* ScoringTeam = nullptr;
@@ -168,9 +185,10 @@ void APongBall::CheckGoalEntry()
 	}
 	else
 	{
-		return;
+		return false;
 	}
 
+	bGoalResetting = true;
 	++(*ScoringTeam);
 	UE_LOG(LogTemp, Display, TEXT("Pong goal scored: Orange %d - Blue %d"), OrangeScore, BlueScore);
 	UpdateScoreDisplays();
@@ -180,6 +198,9 @@ void APongBall::CheckGoalEntry()
 	const float ServeZ = (OrangeScore + BlueScore) % 2 == 0 ? 0.35f : -0.35f;
 	BallBody->SetWorldLocation(FVector(0.0f, PlayPlaneY, 0.0f), false, nullptr, ETeleportType::TeleportPhysics);
 	BallBody->SetPhysicsLinearVelocity(FVector(ServeDirection * ServeSpeed, 0.0f, ServeZ * ServeSpeed));
+	BallBody->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
+	bGoalResetting = false;
+	return true;
 }
 
 void APongBall::TriggerGoalBurst(float GoalX, const FLinearColor& Color)
