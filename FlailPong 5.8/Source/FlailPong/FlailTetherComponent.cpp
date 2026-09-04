@@ -51,8 +51,15 @@ void UFlailTetherComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	HideLegacyCable();
 	WarnIfEndpointMissing();
 	ConfigureFreeStartBody();
+	if (UPrimitiveComponent* StartBody = Cast<UPrimitiveComponent>(CachedStartComponent.Get()))
+	{
+		ConstrainBodyToXZPlane(StartBody, LockedStartY);
+	}
+	DriveBluePaddleAI(DeltaTime);
 	DriveTargetHeadFromMouse(DeltaTime);
 	ApplySlackTetherPhysics(DeltaTime);
+	ConstrainHeadToOwnHalf();
+	ConstrainHeadToArenaBounds();
 	UpdateVisual();
 }
 
@@ -89,8 +96,11 @@ void UFlailTetherComponent::ConfigureFreeStartBody()
 	StartBody->BodyInstance.bLockZRotation = false;
 	StartBody->BodyInstance.bLockRotation = false;
 	StartBody->RecreatePhysicsState();
-	StartBody->SetEnableGravity(true);
+	StartBody->SetEnableGravity(bStartBodyUsesGravity && !bDisableStartBodyGravity);
 	StartBody->SetSimulatePhysics(true);
+	StartBody->SetMassScale(NAME_None, PaddleMassScale);
+	StartBody->RecreatePhysicsState();
+	StartBody->BodyInstance.bUseCCD = true;
 	StartBody->WakeAllRigidBodies();
 
 	bConfiguredFreeStartBody = true;
@@ -242,9 +252,85 @@ void UFlailTetherComponent::UpdateVisual()
 	TetherVisual->SetVisibility(true, true);
 }
 
+void UFlailTetherComponent::DriveBluePaddleAI(float DeltaTime)
+{
+	if (!bBlueAIEnabled || Side != EFlailTetherSide::Blue || DeltaTime <= 0.0f)
+	{
+		return;
+	}
+
+	UPrimitiveComponent* PaddleBody = Cast<UPrimitiveComponent>(CachedStartComponent.Get());
+	UPrimitiveComponent* HeadBody = Cast<UPrimitiveComponent>(CachedEndComponent.Get());
+	if (!PaddleBody || !PaddleBody->IsSimulatingPhysics() || !HeadBody)
+	{
+		return;
+	}
+
+	TArray<AActor*> Balls;
+	UGameplayStatics::GetAllActorsWithTag(GetWorld(), TEXT("PongBall"), Balls);
+	if (Balls.Num() == 0 || !Balls[0])
+	{
+		return;
+	}
+
+	const FVector PaddleLocation = PaddleBody->GetComponentLocation();
+	UPrimitiveComponent* BallBody = Cast<UPrimitiveComponent>(Balls[0]->GetRootComponent());
+	const FVector BallLocation = BallBody ? BallBody->GetComponentLocation() : Balls[0]->GetActorLocation();
+	const FVector BallVelocity = BallBody
+		? BallBody->GetPhysicsLinearVelocity()
+		: FVector::ZeroVector;
+	const FVector PredictedLocation = BallLocation + (BallVelocity * 0.22f);
+	const FVector AnchorLocation = GetAnchorLocation(PaddleBody, StartLocalOffset);
+	const bool bBallThreatening = BallLocation.X < 0.0f;
+	BlueAISwingCooldown = FMath::Max(0.0f, BlueAISwingCooldown - DeltaTime);
+	if (bBallThreatening && BlueAISwingCooldown <= 0.0f && BlueAISwingTime <= 0.0f)
+	{
+		BlueAISwingTime = BlueAISwingDuration;
+		BlueAISwingSign = PredictedLocation.Z >= PaddleLocation.Z ? 1.0f : -1.0f;
+	}
+
+	FVector DesiredHeadLocation = BlueAIRestLocation;
+	if (BlueAISwingTime > 0.0f)
+	{
+		BlueAISwingTime = FMath::Max(0.0f, BlueAISwingTime - DeltaTime);
+		const float Progress = 1.0f - FMath::Clamp(BlueAISwingTime / FMath::Max(BlueAISwingDuration, 0.01f), 0.0f, 1.0f);
+		const float SwingRadius = FMath::Max(BlueAISwingRadius, MaxLength + BlueAIOverpullDistance);
+		const float TargetZ = FMath::Clamp(PredictedLocation.Z, -780.0f, 780.0f);
+		const float SweepZ = TargetZ + ((Progress * 2.0f - 1.0f) * 260.0f * BlueAISwingSign);
+		const float SweepX = AnchorLocation.X + (SwingRadius * (0.55f + (0.45f * FMath::Sin(Progress * PI))));
+		DesiredHeadLocation = FVector(SweepX, AnchorLocation.Y, SweepZ);
+		if (BlueAISwingTime <= 0.0f)
+		{
+			BlueAISwingCooldown = 0.45f;
+		}
+	}
+	DesiredHeadLocation.Y = HeadBody->GetComponentLocation().Y;
+	FVector HeadDelta = DesiredHeadLocation - AnchorLocation;
+	const float AIReach = MaxLength + FMath::Max(BlueAIOverpullDistance, 0.0f);
+	if (HeadDelta.SizeSquared() > FMath::Square(AIReach))
+	{
+		HeadDelta = HeadDelta.GetSafeNormal() * AIReach;
+		DesiredHeadLocation = AnchorLocation + HeadDelta;
+	}
+
+	const FVector CurrentHeadLocation = HeadBody->GetComponentLocation();
+	const float HeadInterpSpeed = BlueAISwingTime > 0.0f
+		? FMath::Max(BlueAIResponsiveness, 0.0f) * 8.0f
+		: FMath::Max(BlueAIResponsiveness, 0.0f) * 2.0f;
+	const FVector NewHeadLocation = FMath::VInterpTo(CurrentHeadLocation, DesiredHeadLocation, DeltaTime, HeadInterpSpeed);
+	HeadBody->SetEnableGravity(false);
+	if (HeadBody->IsSimulatingPhysics())
+	{
+		HeadBody->SetPhysicsLinearVelocity(FVector::ZeroVector);
+		HeadBody->SetSimulatePhysics(false);
+	}
+	HeadBody->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HeadBody->SetWorldLocation(NewHeadLocation, false, nullptr, ETeleportType::None);
+}
+
 void UFlailTetherComponent::DriveTargetHeadFromMouse(float DeltaTime)
 {
-	if (!bDriveTargetHeadFromMouse || DeltaTime <= 0.0f)
+	if (Side != EFlailTetherSide::Orange || !bDriveTargetHeadFromMouse || DeltaTime <= 0.0f)
 	{
 		return;
 	}
@@ -288,6 +374,10 @@ void UFlailTetherComponent::DriveTargetHeadFromMouse(float DeltaTime)
 
 	FVector TargetLocation = RayOrigin + (RayDirection * RayDistance);
 	TargetLocation.Y = PlaneY;
+	const float HeadBoundaryX = CenterLineX + (Side == EFlailTetherSide::Orange ? HeadCenterLineClearance : -HeadCenterLineClearance);
+	TargetLocation.X = Side == EFlailTetherSide::Orange
+		? FMath::Max(TargetLocation.X, HeadBoundaryX)
+		: FMath::Min(TargetLocation.X, HeadBoundaryX);
 
 	const float InterpSpeed = FMath::Max(MouseFollowInterpSpeed, 0.0f);
 	const FVector NewLocation = InterpSpeed <= 0.0f
@@ -326,11 +416,141 @@ void UFlailTetherComponent::DriveTargetHeadFromMouse(float DeltaTime)
 	}
 }
 
+void UFlailTetherComponent::ConstrainHeadToOwnHalf()
+{
+	UPrimitiveComponent* HeadBody = Cast<UPrimitiveComponent>(CachedEndComponent.Get());
+	if (!HeadBody)
+	{
+		return;
+	}
+
+	const float BoundaryX = CenterLineX + (Side == EFlailTetherSide::Orange ? HeadCenterLineClearance : -HeadCenterLineClearance);
+	FVector Location = HeadBody->GetComponentLocation();
+	const bool bOrange = Side == EFlailTetherSide::Orange;
+	const bool bCrossedBoundary = bOrange ? Location.X < BoundaryX : Location.X > BoundaryX;
+	if (!bCrossedBoundary)
+	{
+		return;
+	}
+
+	Location.X = BoundaryX;
+	HeadBody->SetWorldLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
+
+	if (HeadBody->IsSimulatingPhysics())
+	{
+		FVector Velocity = HeadBody->GetPhysicsLinearVelocity();
+		const bool bMovingAcross = bOrange ? Velocity.X < 0.0f : Velocity.X > 0.0f;
+		if (bMovingAcross)
+		{
+			Velocity.X = 0.0f;
+			HeadBody->SetPhysicsLinearVelocity(Velocity);
+		}
+	}
+}
+
+void UFlailTetherComponent::ConstrainHeadToArenaBounds()
+{
+	UPrimitiveComponent* HeadBody = Cast<UPrimitiveComponent>(CachedEndComponent.Get());
+	if (!HeadBody)
+	{
+		return;
+	}
+
+	FVector Location = HeadBody->GetComponentLocation();
+	const FVector OriginalLocation = Location;
+	Location.X = FMath::Clamp(Location.X, HeadMinX, HeadMaxX);
+	Location.Z = FMath::Clamp(Location.Z, HeadMinZ, HeadMaxZ);
+
+	if (Location.Equals(OriginalLocation, 0.1f))
+	{
+		return;
+	}
+
+	HeadBody->SetWorldLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
+	if (HeadBody->IsSimulatingPhysics())
+	{
+		FVector Velocity = HeadBody->GetPhysicsLinearVelocity();
+		if ((Location.X <= HeadMinX && Velocity.X < 0.0f) || (Location.X >= HeadMaxX && Velocity.X > 0.0f))
+		{
+			Velocity.X = 0.0f;
+		}
+		if ((Location.Z <= HeadMinZ && Velocity.Z < 0.0f) || (Location.Z >= HeadMaxZ && Velocity.Z > 0.0f))
+		{
+			Velocity.Z = 0.0f;
+		}
+		HeadBody->SetPhysicsLinearVelocity(Velocity);
+	}
+}
+
+void UFlailTetherComponent::ApplyPaddleBallImpact(float DeltaTime)
+{
+	BallImpactCooldown = FMath::Max(0.0f, BallImpactCooldown - DeltaTime);
+	if (BallImpactCooldown > 0.0f || !CachedStartComponent.IsValid())
+	{
+		return;
+	}
+
+	UPrimitiveComponent* PaddleBody = Cast<UPrimitiveComponent>(CachedStartComponent.Get());
+	if (!PaddleBody || !PaddleBody->IsSimulatingPhysics())
+	{
+		return;
+	}
+
+	TArray<AActor*> BallActors;
+	UGameplayStatics::GetAllActorsWithTag(GetWorld(), TEXT("PongBall"), BallActors);
+	for (AActor* BallActor : BallActors)
+	{
+		if (!BallActor)
+		{
+			continue;
+		}
+
+		TArray<UPrimitiveComponent*> BallBodies;
+		BallActor->GetComponents<UPrimitiveComponent>(BallBodies);
+		for (UPrimitiveComponent* BallBody : BallBodies)
+		{
+			if (!BallBody || !BallBody->IsSimulatingPhysics())
+			{
+				continue;
+			}
+
+			const FVector PaddleLocation = PaddleBody->GetComponentLocation();
+			const FVector BallLocation = BallBody->GetComponentLocation();
+			FVector AwayFromPaddle = BallLocation - PaddleLocation;
+			AwayFromPaddle.Y = 0.0f;
+			const float Distance = AwayFromPaddle.Size();
+			if (Distance > BallImpactRadius || Distance <= KINDA_SMALL_NUMBER)
+			{
+				continue;
+			}
+
+			AwayFromPaddle /= Distance;
+			const FVector PaddleVelocity = PaddleBody->GetPhysicsLinearVelocityAtPoint(BallLocation);
+			const FVector BallVelocity = BallBody->GetPhysicsLinearVelocity();
+			const bool bBallApproaching = FVector::DotProduct(BallVelocity, AwayFromPaddle) < 0.0f;
+			const bool bPaddleStriking = FVector::DotProduct(PaddleVelocity, AwayFromPaddle) > 50.0f;
+			if (!bBallApproaching && !bPaddleStriking)
+			{
+				continue;
+			}
+
+			FVector NewVelocity = FMath::GetReflectionVector(BallVelocity, AwayFromPaddle);
+			NewVelocity += PaddleVelocity * BallVelocityTransfer;
+			NewVelocity.Y = 0.0f;
+			const float Speed = FMath::Clamp(NewVelocity.Size(), 650.0f, 2600.0f);
+			BallBody->SetPhysicsLinearVelocity(NewVelocity.GetSafeNormal() * Speed);
+			BallBody->SetWorldLocation(PaddleLocation + (AwayFromPaddle * BallImpactRadius), false, nullptr, ETeleportType::TeleportPhysics);
+			BallImpactCooldown = 0.08f;
+			return;
+		}
+	}
+}
+
 void UFlailTetherComponent::ApplySlackTetherPhysics(float DeltaTime)
 {
 	// Mouse-driven heads are kinematic, so they still need the dynamic paddle
 	// side of the tether even when the legacy physics toggle is off.
-	if ((!bUseSlackTetherPhysicsAtRuntime && !bDriveTargetHeadFromMouse) || DeltaTime <= 0.0f)
+	if ((!bUseSlackTetherPhysicsAtRuntime && !bDriveTargetHeadFromMouse && !bBlueAIEnabled) || DeltaTime <= 0.0f)
 	{
 		return;
 	}
@@ -390,9 +610,9 @@ void UFlailTetherComponent::ApplySlackTetherPhysics(float DeltaTime)
 	// Keep the line mostly slack and only add tension when it is stretched or
 	// when the paddle is moving farther away. Inward motion stays unopposed,
 	// which gives the paddle room to orbit instead of bouncing on a spring.
-	const float EffectivePullStrength = FMath::Min(PullStrength, 300.0f);
-	const float EffectiveDampingStrength = FMath::Min(DampingStrength, 120.0f);
-	const float EffectiveMaxPullForce = FMath::Min(MaxPullForce, 5000.0f);
+	const float EffectivePullStrength = FMath::Min(PullStrength, 800.0f);
+	const float EffectiveDampingStrength = FMath::Min(DampingStrength, 300.0f);
+	const float EffectiveMaxPullForce = FMath::Min(MaxPullForce, 20000.0f);
 	const float OutwardSpeed = FMath::Max(RelativeSpeed, 0.0f);
 	const float PullMagnitude = FMath::Clamp((Stretch * EffectivePullStrength) + (OutwardSpeed * EffectiveDampingStrength), 0.0f, EffectiveMaxPullForce);
 	const FVector PullForce = Direction * PullMagnitude;

@@ -71,10 +71,10 @@ protected:
 	float MaxLength = 420.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Physics", meta=(ClampMin="0.0", UIMin="0.0"))
-	float PullStrength = 800.0f;
+	float PullStrength = 150.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Physics", meta=(ClampMin="0.0", UIMin="0.0"))
-	float DampingStrength = 80.0f;
+	float DampingStrength = 180.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Physics", meta=(ClampMin="0.0", UIMin="0.0"))
 	float MaxPullForce = 12000.0f;
@@ -103,6 +103,33 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mouse Follow")
 	bool bDriveTargetHeadFromMouse = true;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Blue AI")
+	bool bBlueAIEnabled = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Blue AI")
+	float BlueAIHomeX = -1050.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Blue AI", meta=(ClampMin="0.0", UIMin="0.0"))
+	float BlueAIResponsiveness = 4.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Blue AI", meta=(ClampMin="0.0", UIMin="0.0"))
+	float BlueAIMaxSpeed = 900.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Blue AI", meta=(ClampMin="0.0", UIMin="0.0"))
+	float BlueAIOverpullDistance = 180.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Blue AI")
+	float BlueAIAttackDistance = 450.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Blue AI")
+	FVector BlueAIRestLocation = FVector(-700.0f, -120.0f, 0.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Blue AI", meta=(ClampMin="0.1", UIMin="0.1"))
+	float BlueAISwingDuration = 0.32f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Blue AI", meta=(ClampMin="0.0", UIMin="0.0"))
+	float BlueAISwingRadius = 360.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mouse Follow", meta=(EditCondition="bDriveTargetHeadFromMouse", ClampMin="0.0", UIMin="0.0"))
 	float MouseFollowInterpSpeed = 20.0f;
 
@@ -111,6 +138,24 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Tether")
 	EFlailTetherSide Side = EFlailTetherSide::Orange;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Tether|Arena Boundary")
+	float CenterLineX = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Tether|Arena Boundary", meta=(ClampMin="0.0", UIMin="0.0"))
+	float HeadCenterLineClearance = 40.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Tether|Arena Boundary")
+	float HeadMinX = -1450.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Tether|Arena Boundary")
+	float HeadMaxX = 1450.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Tether|Arena Boundary")
+	float HeadMinZ = -850.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Tether|Arena Boundary")
+	float HeadMaxZ = 850.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Tether", meta=(ClampMin="0.1", UIMin="0.1"))
 	float Radius = 3.0f;
@@ -159,6 +204,15 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Paddle Physics", meta=(ClampMin="0.0", UIMin="0.0"))
 	float StartAngularDamping = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Paddle Physics", meta=(ClampMin="1.0", UIMin="1.0"))
+	float PaddleMassScale = 1.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Ball Impact", meta=(ClampMin="0.0", UIMin="0.0"))
+	float BallVelocityTransfer = 0.85f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Ball Impact", meta=(ClampMin="0.0", UIMin="0.0"))
+	float BallImpactRadius = 85.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Head Stability", meta=(EditCondition="bTuneTargetHeadPhysics", ClampMin="0.0", UIMin="0.0"))
 	float HeadHandleLinearStiffness = 250000.0f;
@@ -215,6 +269,14 @@ private:
 	void ApplySlackTetherPhysics(float DeltaTime);
 	void StabilizeControlledBodies();
 	void ConstrainBodyToXZPlane(UPrimitiveComponent* Body, TOptional<float>& LockedY);
+	void ConstrainHeadToOwnHalf();
+	void ConstrainHeadToArenaBounds();
+	void ApplyPaddleBallImpact(float DeltaTime);
+	void DriveBluePaddleAI(float DeltaTime);
+	float BlueAISwingTime = 0.0f;
+	float BlueAISwingCooldown = 0.0f;
+	float BlueAISwingSign = 1.0f;
+	float BallImpactCooldown = 0.0f;
 	void WarnIfEndpointMissing();
 
 	USceneComponent* FindSceneComponentByName(AActor* Actor, FName ComponentName) const;

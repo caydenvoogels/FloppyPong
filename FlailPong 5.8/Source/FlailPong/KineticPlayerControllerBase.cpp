@@ -17,6 +17,13 @@ void AKineticPlayerControllerBase::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// The orange tether uses the mouse to drive its target head. Keep the
+	// cursor available in PIE/game builds so deprojection has a live position.
+	bShowMouseCursor = true;
+	FInputModeGameAndUI MouseInputMode;
+	MouseInputMode.SetHideCursorDuringCapture(false);
+	SetInputMode(MouseInputMode);
+
 	if (!GameCameraClass)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("KineticPlayerControllerBase could not find BP_GameCamera class."));

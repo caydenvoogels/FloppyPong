@@ -10,7 +10,9 @@ public class FlailPong : ModuleRules
 		{
 			"Core",
 			"CoreUObject",
-			"Engine"
+			"Engine",
+			"PhysicsCore",
+			"Niagara"
 		});
 	}
 }

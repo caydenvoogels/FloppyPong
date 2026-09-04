@@ -1,6 +1,6 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "5.8",
+	"EngineAssociation": "{40522436-42F2-1EEA-BF46-47ACF5E05572}",
 	"Category": "",
 	"Description": "",
 	"Modules": [
@@ -133,6 +133,11 @@
 		{
 			"Name": "MVVMToolset",
 			"Enabled": true
+		},
+		{
+			"Name": "Rocket",
+			"Enabled": true,
+			"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/product/dc179ca63d3a49af89be1172585e2f7b"
 		}
 	]
 }
